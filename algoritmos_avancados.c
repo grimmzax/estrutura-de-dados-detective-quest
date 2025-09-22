@@ -2,16 +2,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define TAM_HASH 13 // Tamanho da tabela hash (primo para melhor distribuição)
+
 // ============================================================================
-// Detective Quest - Mapa da Mansão com Árvore Binária e Coleta de Pistas (BST)
+// Detective Quest - Capítulo Final: Pistas, Suspeitos e Julgamento
 // Autor: Jonathan de Souza Araújo
-// Descrição: Permite explorar uma mansão (árvore binária), coletar pistas em cada cômodo
-// e exibir todas as pistas coletadas em ordem alfabética (BST).
+// Descrição: Permite explorar uma mansão (árvore binária), coletar pistas (BST),
+// associar pistas a suspeitos (hash) e julgar o culpado com base nas evidências.
 // ============================================================================
 
 // -----------------------------------------------------------------------------
-// Definição da struct Sala
-// Cada sala possui um nome, uma pista (opcional) e ponteiros para as salas à esquerda e à direita.
+// Struct Sala: representa um cômodo da mansão (nó da árvore binária)
 // -----------------------------------------------------------------------------
 typedef struct Sala {
     char nome[40];           // Nome do cômodo
@@ -21,8 +22,7 @@ typedef struct Sala {
 } Sala;
 
 // -----------------------------------------------------------------------------
-// Definição da struct PistaNode (BST de pistas)
-// Cada nó armazena uma pista e ponteiros para esquerda/direita (ordenação alfabética).
+// Struct PistaNode: nó da BST de pistas coletadas
 // -----------------------------------------------------------------------------
 typedef struct PistaNode {
     char pista[60];                // Conteúdo da pista
@@ -31,8 +31,17 @@ typedef struct PistaNode {
 } PistaNode;
 
 // -----------------------------------------------------------------------------
+// Struct HashPista: entrada da tabela hash (pista -> suspeito)
+// -----------------------------------------------------------------------------
+typedef struct HashPista {
+    char pista[60];                // Chave: pista
+    char suspeito[40];             // Valor: nome do suspeito
+    struct HashPista* prox;        // Encadeamento para colisões
+} HashPista;
+
+// -----------------------------------------------------------------------------
 // Função criarSala
-// Cria dinamicamente uma sala com nome e pista informados, ponteiros nulos.
+// Cria dinamicamente um cômodo com nome e pista informados, ponteiros nulos.
 // -----------------------------------------------------------------------------
 Sala* criarSala(const char* nome, const char* pista) {
     Sala* nova = (Sala*)malloc(sizeof(Sala));
@@ -46,7 +55,7 @@ Sala* criarSala(const char* nome, const char* pista) {
 }
 
 // -----------------------------------------------------------------------------
-// Função inserirPista
+// Função inserirPista (BST)
 // Insere uma nova pista na BST de pistas, mantendo a ordenação alfabética.
 // -----------------------------------------------------------------------------
 PistaNode* inserirPista(PistaNode* raiz, const char* pista) {
@@ -67,35 +76,50 @@ PistaNode* inserirPista(PistaNode* raiz, const char* pista) {
 }
 
 // -----------------------------------------------------------------------------
-// Função exibirPistas
-// Exibe todas as pistas coletadas em ordem alfabética (in-order traversal da BST).
+// Função hashString
+// Gera um índice para a tabela hash a partir de uma string (pista).
 // -----------------------------------------------------------------------------
-void exibirPistas(PistaNode* raiz) {
-    if (raiz) {
-        exibirPistas(raiz->esquerda);
-        printf("- %s\n", raiz->pista);
-        exibirPistas(raiz->direita);
-    }
+unsigned int hashString(const char* str) {
+    unsigned int hash = 0;
+    while (*str)
+        hash = (hash * 31 + *str++) % TAM_HASH;
+    return hash;
 }
 
 // -----------------------------------------------------------------------------
-// Função liberarPistas
-// Libera toda a memória alocada para a BST de pistas.
+// Função inserirNaHash
+// Insere uma associação pista/suspeito na tabela hash.
 // -----------------------------------------------------------------------------
-void liberarPistas(PistaNode* raiz) {
-    if (raiz) {
-        liberarPistas(raiz->esquerda);
-        liberarPistas(raiz->direita);
-        free(raiz);
-    }
+void inserirNaHash(HashPista* tabela[], const char* pista, const char* suspeito) {
+    unsigned int idx = hashString(pista);
+    HashPista* novo = (HashPista*)malloc(sizeof(HashPista));
+    strcpy(novo->pista, pista);
+    strcpy(novo->suspeito, suspeito);
+    novo->prox = tabela[idx];
+    tabela[idx] = novo;
 }
 
 // -----------------------------------------------------------------------------
-// Função explorarSalasComPistas
+// Função encontrarSuspeito
+// Busca o suspeito associado a uma pista na tabela hash.
+// -----------------------------------------------------------------------------
+const char* encontrarSuspeito(HashPista* tabela[], const char* pista) {
+    unsigned int idx = hashString(pista);
+    HashPista* atual = tabela[idx];
+    while (atual) {
+        if (strcmp(atual->pista, pista) == 0)
+            return atual->suspeito;
+        atual = atual->prox;
+    }
+    return NULL;
+}
+
+// -----------------------------------------------------------------------------
+// Função explorarSalas
 // Permite ao jogador navegar pela mansão, coletando pistas e armazenando na BST.
 // A cada sala, exibe o nome, a pista (se houver) e pergunta o próximo caminho.
 // -----------------------------------------------------------------------------
-void explorarSalasComPistas(Sala* atual, PistaNode** pistas) {
+void explorarSalas(Sala* atual, PistaNode** pistas, HashPista* tabela[]) {
     char escolha;
     while (atual) {
         printf("\nVocê está em: %s\n", atual->nome);
@@ -131,6 +155,44 @@ void explorarSalasComPistas(Sala* atual, PistaNode** pistas) {
 }
 
 // -----------------------------------------------------------------------------
+// Função exibirPistas
+// Exibe todas as pistas coletadas em ordem alfabética (in-order traversal da BST).
+// -----------------------------------------------------------------------------
+void exibirPistas(PistaNode* raiz, HashPista* tabela[]) {
+    if (raiz) {
+        exibirPistas(raiz->esquerda, tabela);
+        printf("- %s (Suspeito: %s)\n", raiz->pista, encontrarSuspeito(tabela, raiz->pista));
+        exibirPistas(raiz->direita, tabela);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Função contarPistasPorSuspeito
+// Conta quantas pistas na BST apontam para o suspeito informado.
+// -----------------------------------------------------------------------------
+int contarPistasPorSuspeito(PistaNode* raiz, HashPista* tabela[], const char* suspeito) {
+    if (!raiz) return 0;
+    int count = 0;
+    const char* s = encontrarSuspeito(tabela, raiz->pista);
+    if (s && strcmp(s, suspeito) == 0)
+        count = 1;
+    return count + contarPistasPorSuspeito(raiz->esquerda, tabela, suspeito)
+                + contarPistasPorSuspeito(raiz->direita, tabela, suspeito);
+}
+
+// -----------------------------------------------------------------------------
+// Função liberarPistas
+// Libera toda a memória alocada para a BST de pistas.
+// -----------------------------------------------------------------------------
+void liberarPistas(PistaNode* raiz) {
+    if (raiz) {
+        liberarPistas(raiz->esquerda);
+        liberarPistas(raiz->direita);
+        free(raiz);
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Função liberarSalas
 // Libera toda a memória alocada para a árvore de salas (mapa da mansão).
 // -----------------------------------------------------------------------------
@@ -143,12 +205,45 @@ void liberarSalas(Sala* sala) {
 }
 
 // -----------------------------------------------------------------------------
+// Função liberarHash
+// Libera toda a memória alocada para a tabela hash de pistas.
+// -----------------------------------------------------------------------------
+void liberarHash(HashPista* tabela[]) {
+    for (int i = 0; i < TAM_HASH; i++) {
+        HashPista* atual = tabela[i];
+        while (atual) {
+            HashPista* temp = atual;
+            atual = atual->prox;
+            free(temp);
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Função verificarSuspeitoFinal
+// Solicita acusação do jogador e verifica se há pelo menos 2 pistas para o suspeito.
+// -----------------------------------------------------------------------------
+void verificarSuspeitoFinal(PistaNode* pistas, HashPista* tabela[]) {
+    char suspeito[40];
+    printf("\n=== Fase de Julgamento ===\n");
+    printf("Com base nas pistas, quem você acusa? Digite o nome do suspeito: ");
+    scanf(" %[^\n]", suspeito);
+
+    int count = contarPistasPorSuspeito(pistas, tabela, suspeito);
+    printf("\nPistas que apontam para %s: %d\n", suspeito, count);
+    if (count >= 2) {
+        printf("Acusação aceita! %s foi considerado CULPADO com base nas evidências.\n", suspeito);
+    } else {
+        printf("Acusação rejeitada. Não há evidências suficientes contra %s.\n", suspeito);
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Função main
-// Monta o mapa da mansão (árvore binária), inicia a exploração e exibe as pistas coletadas.
+// Monta o mapa da mansão, associa pistas a suspeitos, permite exploração e julgamento.
 // -----------------------------------------------------------------------------
 int main() {
     // Criação manual da árvore binária representando o mapa da mansão
-    // Cada sala pode ter uma pista (ou não)
     Sala* hall = criarSala("Hall de Entrada", "Pegadas de lama no tapete");
     Sala* biblioteca = criarSala("Biblioteca", "Livro fora do lugar");
     Sala* cozinha = criarSala("Cozinha", "Faca sumida do suporte");
@@ -168,18 +263,32 @@ int main() {
     // Inicializa a BST de pistas como vazia
     PistaNode* pistas = NULL;
 
+    // Inicializa a tabela hash de pistas para suspeitos
+    HashPista* hash[TAM_HASH] = {0};
+
+    // Associa pistas a suspeitos (definido no código)
+    inserirNaHash(hash, "Pegadas de lama no tapete", "Sr. Green");
+    inserirNaHash(hash, "Livro fora do lugar", "Sra. White");
+    inserirNaHash(hash, "Faca sumida do suporte", "Coronel Mustard");
+    inserirNaHash(hash, "Janela aberta", "Sr. Green");
+    inserirNaHash(hash, "Pegadas recentes na terra", "Sr. Green");
+    inserirNaHash(hash, "Chave caída no chão", "Sra. White");
+
     // Início da exploração a partir do Hall de Entrada
     printf("=== Detective Quest: Exploração da Mansão ===\n");
-    explorarSalasComPistas(hall, &pistas);
+    explorarSalas(hall, &pistas, hash);
 
-    // Exibe todas as pistas coletadas em ordem alfabética
+    // Exibe todas as pistas coletadas em ordem alfabética, com suspeitos
     printf("\nPistas coletadas (ordem alfabética):\n");
     if (pistas)
-        exibirPistas(pistas);
+        exibirPistas(pistas, hash);
     else
         printf("Nenhuma pista foi coletada.\n");
 
-    // Liberação da memória alocada para as pistas e salas
+    // Fase de julgamento: jogador faz acusação
+    verificarSuspeitoFinal(pistas, hash);
+
+    // Liberação da memória alocada para as pistas, salas e hash
     liberarPistas(pistas);
     liberarSalas(salaEstar);
     liberarSalas(sotao);
@@ -188,6 +297,7 @@ int main() {
     liberarSalas(porao);
     liberarSalas(cozinha);
     liberarSalas(hall);
+    liberarHash(hash);
 
     return 0;
 }
